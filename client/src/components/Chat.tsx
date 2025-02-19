@@ -3,18 +3,21 @@ import {
   Box,
   Container,
   Grid,
-  IconButton,
   InputAdornment,
   Paper,
   TextField,
-  useTheme,
+  Tooltip,
+  Typography,
+  IconButton,
 } from "@mui/material";
-import { Brightness4, Brightness7, Send } from "@mui/icons-material";
+import { Send } from "@mui/icons-material";
+import "../styles/highlight.css";
 import { socketService } from "../socket";
 import { ChatMessage } from "./ChatMessage";
 import { UserList } from "./UserList";
 import { FileUpload } from "./FileUpload";
-import { Message } from "../types";
+import { ChatHeader } from "./ChatHeader";
+import { Message, UserInfo } from "../types";
 
 interface Props {
   onToggleTheme: () => void;
@@ -23,17 +26,19 @@ interface Props {
 
 export const Chat = ({ onToggleTheme, darkMode }: Props) => {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [users, setUsers] = useState<string[]>([]);
+  const [filteredMessages, setFilteredMessages] = useState<Message[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [users, setUsers] = useState<UserInfo[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [currentUser, setCurrentUser] = useState<string>("");
+  const [currentUser, setCurrentUser] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const theme = useTheme();
 
   useEffect(() => {
     const connect = async () => {
       try {
         const userId = await socketService.connect();
-        setCurrentUser(userId);
+        setCurrentUserId(userId);
       } catch (error) {
         console.error("Connection failed:", error);
       }
@@ -52,17 +57,53 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
 
     const unsubscribeUsers = socketService.onUserListUpdate((userList) => {
       setUsers(userList);
+      // 更新当前用户的显示昵称
+      const currentUserInfo = userList.find((u) => u.userId === currentUserId);
+      if (currentUserInfo) {
+        setCurrentUser(currentUserInfo.nickname);
+      }
+    });
+
+    // 从localStorage获取初始昵称
+    const savedNickname = localStorage.getItem("nickname");
+    if (savedNickname) {
+      setCurrentUser(savedNickname);
+    }
+
+    // 添加昵称更新事件监听
+    const unsubscribeUserUpdate = socketService.onUserUpdate((data) => {
+      if (data.userId === currentUserId) {
+        setCurrentUser(data.nickname);
+      }
     });
 
     return () => {
       unsubscribeMessage();
       unsubscribeUsers();
+      unsubscribeUserUpdate();
     };
-  }, []);
+  }, [currentUserId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, filteredMessages]);
+
+  useEffect(() => {
+    if (searchTerm) {
+      const filtered = messages.filter(
+        (msg) =>
+          msg.text.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          msg.user.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setFilteredMessages(filtered);
+    } else {
+      setFilteredMessages([]);
+    }
+  }, [searchTerm, messages]);
+
+  const handleSearch = (term: string) => {
+    setSearchTerm(term);
+  };
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,86 +113,180 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
     }
   };
 
+  const displayMessages = searchTerm ? filteredMessages : messages;
+
   return (
-    <Container maxWidth="xl" sx={{ height: "100vh", py: 2 }}>
-      <Grid container spacing={2} sx={{ height: "100%" }}>
+    <Box
+      sx={{
+        height: "100vh",
+        overflow: "hidden",
+        width: "100%",
+      }}
+    >
+      <Container
+        maxWidth={false}
+        sx={{
+          height: "100%",
+          p: { xs: 1, sm: 2 },
+          display: "flex",
+        }}
+      >
         <Grid
-          item
-          xs={9}
-          sx={{ height: "100%", display: "flex", flexDirection: "column" }}
+          container
+          spacing={2}
+          sx={{
+            height: "100%",
+            maxWidth: "1600px",
+            mx: "auto",
+            width: "100%",
+          }}
         >
-          <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
-            <IconButton onClick={onToggleTheme}>
-              {darkMode ? <Brightness7 /> : <Brightness4 />}
-            </IconButton>
-          </Box>
-          <Paper
-            sx={{
-              flex: 1,
-              mb: 2,
-              p: 2,
-              overflow: "auto",
-              bgcolor: "background.default",
-              borderRadius: 2,
-            }}
-          >
-            <Box sx={{ display: "flex", flexDirection: "column" }}>
-              {messages.map((message) => (
-                <ChatMessage
-                  key={message.id}
-                  message={message}
-                  isCurrentUser={message.user === currentUser}
-                />
-              ))}
-              <div ref={messagesEndRef} />
-            </Box>
-          </Paper>
-          <Paper
-            component="form"
-            onSubmit={handleSendMessage}
-            sx={{
-              p: 2,
-              display: "flex",
-              alignItems: "center",
-              borderRadius: 2,
-            }}
-          >
-            <TextField
-              fullWidth
-              variant="outlined"
-              placeholder="输入消息..."
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton type="submit" disabled={!newMessage.trim()}>
-                      <Send />
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-          </Paper>
-        </Grid>
-        <Grid item xs={3} sx={{ height: "100%" }}>
-          <Box
+          <Grid
+            item
+            xs={12}
+            md={9}
             sx={{
               height: "100%",
               display: "flex",
               flexDirection: "column",
-              gap: 2,
+              minWidth: 0,
             }}
           >
-            <Box sx={{ flex: "0 0 40%" }}>
-              <UserList users={users} currentUser={currentUser} />
+            <Paper
+              sx={{
+                flex: 1,
+                mb: 2,
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "column",
+                bgcolor: "background.default",
+                borderRadius: 2,
+                width: "100%",
+              }}
+            >
+              <ChatHeader
+                onToggleTheme={onToggleTheme}
+                darkMode={darkMode}
+                onSearch={handleSearch}
+                usersCount={users.length}
+                currentUser={currentUser}
+              />
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  p: 2,
+                  flex: 1,
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  width: "100%",
+                }}
+              >
+                {displayMessages.map((message) => (
+                  <ChatMessage
+                    key={message.id}
+                    message={message}
+                    isCurrentUser={message.userId === currentUserId}
+                  />
+                ))}
+                <div ref={messagesEndRef} />
+              </Box>
+            </Paper>
+            <Paper
+              component="form"
+              onSubmit={handleSendMessage}
+              sx={{
+                p: 2,
+                display: "flex",
+                flexDirection: "column",
+                borderRadius: 2,
+                overflow: "hidden",
+                width: "100%",
+              }}
+            >
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  px: 1,
+                  py: 0.5,
+                  borderBottom: 1,
+                  borderColor: "divider",
+                }}
+              >
+                <Tooltip title="普通文本支持换行和空格。使用 ```语言名 包裹代码，例如：```javascript 代码 ```">
+                  <Typography variant="caption" color="text.secondary">
+                    💡 提示：Shift + Enter 换行 | 支持代码高亮
+                  </Typography>
+                </Tooltip>
+              </Box>
+              <Box sx={{ display: "flex", alignItems: "center", p: 1 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  variant="outlined"
+                  placeholder="输入消息..."
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  multiline
+                  minRows={2}
+                  maxRows={8}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (newMessage.trim()) {
+                        handleSendMessage(e as any);
+                      }
+                    }
+                  }}
+                  sx={{
+                    "& .MuiInputBase-root": {
+                      fontFamily: "monospace",
+                    },
+                  }}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end" sx={{ mr: -0.5 }}>
+                        <IconButton
+                          type="submit"
+                          disabled={!newMessage.trim()}
+                          color="primary"
+                          size="small"
+                        >
+                          <Send fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Box>
+            </Paper>
+          </Grid>
+          <Grid
+            item
+            xs={12}
+            md={3}
+            sx={{ height: "100%", display: { xs: "none", md: "block" } }}
+          >
+            <Box
+              sx={{
+                height: "100%",
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+              }}
+            >
+              <Box sx={{ flex: "0 0 40%" }}>
+                <UserList users={users} currentUser={currentUserId} />
+              </Box>
+              <Box sx={{ flex: "0 0 60%" }}>
+                <FileUpload />
+              </Box>
             </Box>
-            <Box sx={{ flex: "0 0 60%" }}>
-              <FileUpload />
-            </Box>
-          </Box>
+          </Grid>
         </Grid>
-      </Grid>
-    </Container>
+      </Container>
+    </Box>
   );
 };

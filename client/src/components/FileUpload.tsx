@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import {
   Box,
   Button,
@@ -7,14 +7,24 @@ import {
   List,
   ListItem,
   ListItemIcon,
+  ListItemSecondaryAction,
   ListItemText,
   Paper,
+  Tooltip,
   Typography,
+  useTheme,
 } from "@mui/material";
-import { AttachFile, Download, InsertDriveFile } from "@mui/icons-material";
+import {
+  AttachFile,
+  Download,
+  Delete,
+  InsertDriveFile,
+} from "@mui/icons-material";
 import axios from "axios";
 import { FileMessage } from "../types";
 import { socketService } from "../socket";
+import { format } from "date-fns";
+import { zhCN } from "date-fns/locale";
 
 interface Props {
   onFileUploaded?: () => void;
@@ -25,6 +35,8 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
     [key: string]: number;
   }>({});
   const [sharedFiles, setSharedFiles] = useState<FileMessage[]>([]);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const theme = useTheme();
 
   const handleFileSelect = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -54,7 +66,6 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
           onFileUploaded();
         }
 
-        // 清除进度
         setUploadProgress((prev) => {
           const newProgress = { ...prev };
           delete newProgress[files[0].name];
@@ -72,12 +83,20 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
     [onFileUploaded]
   );
 
-  React.useEffect(() => {
-    const unsubscribe = socketService.onFileShared((file) => {
+  useEffect(() => {
+    const unsubscribeShared = socketService.onFileShared((file) => {
       setSharedFiles((prev) => [file, ...prev]);
     });
 
-    return () => unsubscribe();
+    const unsubscribeDeleted = socketService.onFileDeleted((fileId) => {
+      setSharedFiles((prev) => prev.filter((file) => file.id !== fileId));
+      setDeleting(null);
+    });
+
+    return () => {
+      unsubscribeShared();
+      unsubscribeDeleted();
+    };
   }, []);
 
   const handleDownload = async (fileId: string, fileName: string) => {
@@ -99,6 +118,16 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
     }
   };
 
+  const handleDelete = async (fileId: string) => {
+    try {
+      setDeleting(fileId);
+      await socketService.deleteFile(fileId);
+    } catch (error) {
+      console.error("File deletion failed:", error);
+      setDeleting(null);
+    }
+  };
+
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 B";
     const k = 1024;
@@ -108,8 +137,8 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
   };
 
   return (
-    <Paper sx={{ p: 2, height: "100%", borderRadius: 2 }}>
-      <Box sx={{ mb: 2 }}>
+    <Paper sx={{ height: "100%", borderRadius: 2, overflow: "hidden" }}>
+      <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
         <input
           type="file"
           id="file-upload"
@@ -118,7 +147,7 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
         />
         <label htmlFor="file-upload">
           <Button
-            variant="contained"
+            variant="outlined"
             component="span"
             startIcon={<AttachFile />}
             fullWidth
@@ -128,31 +157,65 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
         </label>
       </Box>
 
-      <Typography variant="h6" sx={{ mb: 1 }}>
-        共享文件
-      </Typography>
-      <List sx={{ overflow: "auto", maxHeight: "calc(100% - 120px)" }}>
+      <List sx={{ overflow: "auto", maxHeight: "calc(100% - 80px)" }}>
         {sharedFiles.map((file) => (
           <ListItem
             key={file.id}
-            secondaryAction={
-              <IconButton
-                edge="end"
-                onClick={() => handleDownload(file.id, file.name)}
-              >
-                <Download />
-              </IconButton>
-            }
+            sx={{
+              "&:hover": {
+                backgroundColor: theme.palette.action.hover,
+              },
+            }}
           >
             <ListItemIcon>
               <InsertDriveFile />
             </ListItemIcon>
             <ListItemText
-              primary={file.name}
-              secondary={`${file.sender} - ${formatFileSize(file.size)}`}
+              primary={
+                <Tooltip title={file.name}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {file.name}
+                  </Typography>
+                </Tooltip>
+              }
+              secondary={
+                <Box
+                  component="span"
+                  sx={{ display: "flex", gap: 1, alignItems: "center" }}
+                >
+                  <Typography variant="caption" component="span">
+                    {file.sender}
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    component="span"
+                    color="text.secondary"
+                  >
+                    {formatFileSize(file.size)}
+                  </Typography>
+                  {file.timestamp && (
+                    <Typography
+                      variant="caption"
+                      component="span"
+                      color="text.secondary"
+                    >
+                      {format(new Date(file.timestamp), "HH:mm", {
+                        locale: zhCN,
+                      })}
+                    </Typography>
+                  )}
+                </Box>
+              }
             />
             {uploadProgress[file.name] !== undefined && (
-              <Box sx={{ display: "flex", alignItems: "center", ml: 2 }}>
+              <Box sx={{ display: "flex", alignItems: "center", mr: 2 }}>
                 <CircularProgress
                   variant="determinate"
                   value={uploadProgress[file.name]}
@@ -163,6 +226,26 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
                 </Typography>
               </Box>
             )}
+            <ListItemSecondaryAction>
+              <IconButton
+                edge="end"
+                onClick={() => handleDownload(file.id, file.name)}
+                sx={{ mr: 1 }}
+              >
+                <Download />
+              </IconButton>
+              <IconButton
+                edge="end"
+                onClick={() => handleDelete(file.id)}
+                disabled={deleting === file.id}
+              >
+                {deleting === file.id ? (
+                  <CircularProgress size={20} />
+                ) : (
+                  <Delete />
+                )}
+              </IconButton>
+            </ListItemSecondaryAction>
           </ListItem>
         ))}
       </List>

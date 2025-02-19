@@ -1,16 +1,16 @@
 import React from "react";
 import {
+  Box,
   List,
   ListItem,
-  ListItemIcon,
   ListItemText,
   Paper,
   Typography,
 } from "@mui/material";
-import { AccountCircle } from "@mui/icons-material";
+import { UserInfo } from "../types";
 
 interface Props {
-  users: string[];
+  users: UserInfo[];
   currentUser: string;
 }
 
@@ -18,32 +18,49 @@ export const UserList = ({ users, currentUser }: Props) => {
   return (
     <Paper
       sx={{
-        width: "100%",
         height: "100%",
-        overflow: "auto",
         borderRadius: 2,
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      <Typography
-        variant="h6"
-        sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}
+      <Box
+        sx={{
+          p: 2,
+          borderBottom: 1,
+          borderColor: "divider",
+        }}
       >
-        在线用户 ({users.length})
-      </Typography>
-      <List>
+        <Typography variant="h6" sx={{ fontSize: "1rem" }}>
+          在线用户 ({users.length})
+        </Typography>
+      </Box>
+      <List sx={{ overflow: "auto", flexGrow: 1, p: 0 }}>
         {users.map((user) => (
-          <ListItem key={user}>
-            <ListItemIcon>
-              <AccountCircle
-                color={user === currentUser ? "primary" : "inherit"}
-              />
-            </ListItemIcon>
+          <ListItem
+            key={user.userId}
+            sx={(theme) => ({
+              borderBottom: 1,
+              borderColor: "divider",
+              bgcolor:
+                user.userId === currentUser
+                  ? theme.palette.action.selected
+                  : "transparent",
+              "&:hover": {
+                bgcolor: theme.palette.action.hover,
+              },
+            })}
+          >
             <ListItemText
-              primary={user}
+              primary={user.nickname}
+              secondary={user.userId === currentUser ? "(我)" : ""}
               sx={{
                 "& .MuiListItemText-primary": {
-                  color: user === currentUser ? "primary.main" : "inherit",
-                  fontWeight: user === currentUser ? "bold" : "normal",
+                  fontSize: "0.875rem",
+                },
+                "& .MuiListItemText-secondary": {
+                  fontSize: "0.75rem",
                 },
               }}
             />
