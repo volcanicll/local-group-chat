@@ -146,6 +146,58 @@ io.on("connection", (socket) => {
 
   // 更新用户数据
   users.set(userId, userData);
+
+  // WebRTC信令处理
+  socket.on("rtc:signal", ({ to, signal }) => {
+    const targetSocket = Array.from(io.sockets.sockets.values()).find(
+      (s) => s.handshake.auth.userId === to
+    );
+    if (targetSocket) {
+      targetSocket.emit("rtc:signal", {
+        from: userId,
+        signal,
+      });
+    }
+  });
+
+  socket.on("rtc:request", ({ to, fileInfo }) => {
+    const targetSocket = Array.from(io.sockets.sockets.values()).find(
+      (s) => s.handshake.auth.userId === to
+    );
+    if (targetSocket) {
+      targetSocket.emit("rtc:request", {
+        from: userId,
+        fileInfo,
+      });
+    }
+  });
+
+  socket.on("rtc:accept", ({ to }) => {
+    const targetSocket = Array.from(io.sockets.sockets.values()).find(
+      (s) => s.handshake.auth.userId === to
+    );
+    if (targetSocket) {
+      targetSocket.emit("rtc:accept", { from: userId });
+    }
+  });
+
+  socket.on("rtc:reject", ({ to }) => {
+    const targetSocket = Array.from(io.sockets.sockets.values()).find(
+      (s) => s.handshake.auth.userId === to
+    );
+    if (targetSocket) {
+      targetSocket.emit("rtc:reject", { from: userId });
+    }
+  });
+
+  socket.on("rtc:fallback", ({ to }) => {
+    const targetSocket = Array.from(io.sockets.sockets.values()).find(
+      (s) => s.handshake.auth.userId === to
+    );
+    if (targetSocket) {
+      targetSocket.emit("rtc:fallback", { from: userId });
+    }
+  });
   userData.connections.add(socket.id);
 
   // 发送欢迎消息和历史消息（确保所有消息都包含userId）

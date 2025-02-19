@@ -1,8 +1,10 @@
 import { io, Socket } from "socket.io-client";
 import { FileMessage, Message, WelcomeResponse, UserInfo } from "./types";
+import { WebRTCManager } from "./lib/webrtc-manager";
 
 class SocketService {
   private socket: Socket | null = null;
+  private rtcManager: WebRTCManager | null = null;
   private messageHandlers: ((message: Message) => void)[] = [];
   private fileHandlers: ((file: FileMessage) => void)[] = [];
   private fileDeleteHandlers: ((fileId: string) => void)[] = [];
@@ -22,6 +24,9 @@ class SocketService {
           userId: savedUserId,
         },
       });
+
+      // Initialize WebRTC manager after socket connection
+      this.rtcManager = new WebRTCManager(this.socket);
 
       this.socket.on("connect", () => {
         console.log("Connected to server");
@@ -112,6 +117,36 @@ class SocketService {
     });
   }
 
+  async sendFileViaWebRTC(targetUserId: string, file: File): Promise<void> {
+    if (!this.rtcManager) {
+      throw new Error("WebRTC manager not initialized");
+    }
+
+    return new Promise((resolve, reject) => {
+      this.rtcManager!.initiateFileTransfer(targetUserId, file, {
+        onProgress: (progress) => {
+          // Progress handler can be used by the UI
+          console.log(`Transfer progress: ${progress}%`);
+        },
+        onComplete: () => {
+          resolve();
+        },
+        onError: (error) => {
+          reject(error);
+        },
+      });
+    });
+  }
+
+  onWebRTCFallback(handler: (data: { from: string }) => void) {
+    if (!this.socket) return () => {};
+
+    this.socket.on("rtc:fallback", handler);
+    return () => {
+      this.socket?.off("rtc:fallback", handler);
+    };
+  }
+
   updateNickname(nickname: string) {
     return fetch("/api/users/nickname", {
       method: "POST",
@@ -163,6 +198,8 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
     }
+    // Clean up WebRTC connections
+    this.rtcManager = null;
   }
 }
 

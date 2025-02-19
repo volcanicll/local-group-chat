@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from "react";
+import React, { useCallback, useState, useEffect, useContext } from "react";
 import {
   Box,
   Button,
@@ -13,6 +13,8 @@ import {
   Tooltip,
   Typography,
   useTheme,
+  Snackbar,
+  Alert,
 } from "@mui/material";
 import {
   AttachFile,
@@ -20,62 +22,77 @@ import {
   Delete,
   InsertDriveFile,
 } from "@mui/icons-material";
-import axios from "axios";
 import { FileMessage } from "../types";
 import { socketService } from "../socket";
 import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
+import { UserContext } from "../App";
 
 interface Props {
   onFileUploaded?: () => void;
 }
 
+interface UploadProgress {
+  [key: string]: number;
+}
+
 export const FileUpload = ({ onFileUploaded }: Props) => {
-  const [uploadProgress, setUploadProgress] = useState<{
-    [key: string]: number;
-  }>({});
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress>({});
   const [sharedFiles, setSharedFiles] = useState<FileMessage[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
   const theme = useTheme();
+  const { userId } = useContext(UserContext);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState("");
+
+  const handleSnackbarClose = (
+    event: React.SyntheticEvent | Event,
+    reason?: string
+  ) => {
+    if (reason === "clickaway") {
+      return;
+    }
+    setSnackbarOpen(false);
+  };
 
   const handleFileSelect = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = event.target.files;
       if (!files) return;
 
-      const formData = new FormData();
-      formData.append("file", files[0]);
-      formData.append("sender", socketService.getUserId() || "未知用户");
+      const file = files[0];
+      const targetUserId = prompt("请输入接收用户ID:"); // 临时方案，实际应从用户列表中选择
+
+      if (!targetUserId) {
+        alert("必须指定接收用户ID");
+        return;
+      }
+
+      setUploadProgress((prev: UploadProgress) => ({
+        ...prev,
+        [file.name]: 0, // 初始化进度为0
+      }));
 
       try {
-        const response = await axios.post("/api/upload", formData, {
-          onUploadProgress: (progressEvent) => {
-            if (progressEvent.total) {
-              const progress = Math.round(
-                (progressEvent.loaded * 100) / progressEvent.total
-              );
-              setUploadProgress((prev) => ({
-                ...prev,
-                [files[0].name]: progress,
-              }));
-            }
-          },
-        });
-
+        await socketService.sendFileViaWebRTC(targetUserId, file);
         if (onFileUploaded) {
           onFileUploaded();
         }
-
-        setUploadProgress((prev) => {
+        setSnackbarMessage("文件发送成功!");
+        setSnackbarOpen(true);
+      } catch (error: any) {
+        console.error("WebRTC文件发送失败:", error);
+        setSnackbarMessage(`文件发送失败: ${error.message}`);
+        setSnackbarOpen(true);
+        setUploadProgress((prev: UploadProgress) => {
           const newProgress = { ...prev };
-          delete newProgress[files[0].name];
+          delete newProgress[file.name];
           return newProgress;
         });
-      } catch (error) {
-        console.error("File upload failed:", error);
-        setUploadProgress((prev) => {
+      } finally {
+        setUploadProgress((prev: UploadProgress) => {
           const newProgress = { ...prev };
-          delete newProgress[files[0].name];
+          delete newProgress[file.name];
           return newProgress;
         });
       }
@@ -93,30 +110,43 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
       setDeleting(null);
     });
 
+    socketService.onWebRTCFallback(({ from }) => {
+      setSnackbarMessage(`用户 ${from} WebRTC传输失败，已回退到WebSocket`);
+      setSnackbarOpen(true);
+    });
+
     return () => {
       unsubscribeShared();
       unsubscribeDeleted();
     };
   }, []);
 
-  const handleDownload = async (fileId: string, fileName: string) => {
-    try {
-      const response = await axios.get(`/api/download/${fileId}`, {
-        responseType: "blob",
-      });
-
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", fileName);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("File download failed:", error);
-    }
-  };
+  const handleDownload = useCallback(
+    async (fileId: string, fileName: string) => {
+      try {
+        const response = await fetch(`/api/download/${fileId}`, {
+          method: "GET",
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        console.error("File download failed:", error);
+        setSnackbarMessage(`文件下载失败: ${error}`);
+        setSnackbarOpen(true);
+      }
+    },
+    []
+  );
 
   const handleDelete = async (fileId: string) => {
     try {
@@ -138,6 +168,20 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
 
   return (
     <Paper sx={{ height: "100%", borderRadius: 2, overflow: "hidden" }}>
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={3000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      >
+        <Alert
+          onClose={handleSnackbarClose}
+          severity="success"
+          sx={{ width: "100%" }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
       <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
         <input
           type="file"
