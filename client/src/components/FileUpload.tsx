@@ -16,6 +16,7 @@ import {
   Snackbar,
   Alert,
 } from "@mui/material";
+import { UserSelectDialog } from "./UserSelectDialog";
 import {
   AttachFile,
   Download,
@@ -27,6 +28,7 @@ import { socketService } from "../socket";
 import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { UserContext } from "../App";
+import { UserInfo } from "../types";
 
 interface Props {
   onFileUploaded?: () => void;
@@ -44,6 +46,16 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
   const { userId } = useContext(UserContext);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
+  const [userSelectOpen, setUserSelectOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [users, setUsers] = useState<UserInfo[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = socketService.onUserListUpdate((userList) => {
+      setUsers(userList);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleSnackbarClose = (
     event: React.SyntheticEvent | Event,
@@ -61,43 +73,18 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
       if (!files) return;
 
       const file = files[0];
-      const targetUserId = prompt("请输入接收用户ID:"); // 临时方案，实际应从用户列表中选择
-
-      if (!targetUserId) {
-        alert("必须指定接收用户ID");
-        return;
-      }
+      setSelectedFile(file);
+      setUserSelectOpen(true);
 
       setUploadProgress((prev: UploadProgress) => ({
         ...prev,
-        [file.name]: 0, // 初始化进度为0
+        [file.name]: 0,
       }));
 
-      try {
-        await socketService.sendFileViaWebRTC(targetUserId, file);
-        if (onFileUploaded) {
-          onFileUploaded();
-        }
-        setSnackbarMessage("文件发送成功!");
-        setSnackbarOpen(true);
-      } catch (error: any) {
-        console.error("WebRTC文件发送失败:", error);
-        setSnackbarMessage(`文件发送失败: ${error.message}`);
-        setSnackbarOpen(true);
-        setUploadProgress((prev: UploadProgress) => {
-          const newProgress = { ...prev };
-          delete newProgress[file.name];
-          return newProgress;
-        });
-      } finally {
-        setUploadProgress((prev: UploadProgress) => {
-          const newProgress = { ...prev };
-          delete newProgress[file.name];
-          return newProgress;
-        });
-      }
+      // 重置input，允许选择相同文件
+      event.target.value = "";
     },
-    [onFileUploaded]
+    []
   );
 
   useEffect(() => {
@@ -200,6 +187,43 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
           </Button>
         </label>
       </Box>
+      <UserSelectDialog
+        open={userSelectOpen}
+        onClose={() => {
+          setUserSelectOpen(false);
+          setSelectedFile(null);
+        }}
+        onSelect={async (targetUserId) => {
+          if (!selectedFile) return;
+
+          setUploadProgress((prev) => ({
+            ...prev,
+            [selectedFile.name]: 0,
+          }));
+
+          try {
+            await socketService.sendFileViaWebRTC(targetUserId, selectedFile);
+            if (onFileUploaded) {
+              onFileUploaded();
+            }
+            setSnackbarMessage("文件发送成功!");
+            setSnackbarOpen(true);
+          } catch (error: any) {
+            console.error("WebRTC文件发送失败:", error);
+            setSnackbarMessage(`文件发送失败: ${error.message}`);
+            setSnackbarOpen(true);
+          } finally {
+            setUploadProgress((prev) => {
+              const newProgress = { ...prev };
+              delete newProgress[selectedFile.name];
+              return newProgress;
+            });
+            setSelectedFile(null);
+          }
+        }}
+        users={users}
+        currentUserId={userId as string}
+      />
 
       <List sx={{ overflow: "auto", maxHeight: "calc(100% - 80px)" }}>
         {sharedFiles.map((file) => (

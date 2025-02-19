@@ -19,10 +19,12 @@ export const UserList = ({ users, currentUser }: Props) => {
     <Paper
       sx={{
         height: "100%",
+        maxHeight: { xs: "150px", md: "400px" },
         borderRadius: 2,
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
+        boxShadow: { xs: "none", md: 1 },
       }}
     >
       <Box
@@ -30,13 +32,36 @@ export const UserList = ({ users, currentUser }: Props) => {
           p: 2,
           borderBottom: 1,
           borderColor: "divider",
+          bgcolor: (theme) => theme.palette.background.paper,
+          position: "sticky",
+          top: 0,
+          zIndex: 1,
         }}
       >
         <Typography variant="h6" sx={{ fontSize: "1rem" }}>
           在线用户 ({users.length})
         </Typography>
       </Box>
-      <List sx={{ overflow: "auto", flexGrow: 1, p: 0 }}>
+      <List 
+        sx={{ 
+          overflow: "auto", 
+          flexGrow: 1, 
+          p: 0,
+          '&::-webkit-scrollbar': {
+            width: '8px',
+          },
+          '&::-webkit-scrollbar-track': {
+            background: 'transparent',
+          },
+          '&::-webkit-scrollbar-thumb': {
+            backgroundColor: (theme) => theme.palette.divider,
+            borderRadius: '4px',
+          },
+          '&::-webkit-scrollbar-thumb:hover': {
+            backgroundColor: (theme) => theme.palette.action.hover,
+          },
+        }}
+      >
         {users.map((user) => (
           <ListItem
             key={user.userId}

@@ -26,6 +26,7 @@ const upload = multer({ storage: storage });
 const files = new Map();
 const messages = [];
 const users = new Map(); // key: userId, value: {connections: Set<socket.id>, nickname: string}
+let onlineUsers = new Set(); // 添加在线用户集合来准确追踪
 
 // 更新用户昵称
 app.post("/api/users/nickname", express.json(), (req, res) => {
@@ -155,29 +156,51 @@ io.on("connection", (socket) => {
     if (targetSocket) {
       targetSocket.emit("rtc:signal", {
         from: userId,
+        fromNickname: userData.nickname,
         signal,
       });
     }
   });
 
   socket.on("rtc:request", ({ to, fileInfo }) => {
+    console.log(
+      `文件传输请求: 从 ${userId}(${userData.nickname}) 到 ${to}`,
+      fileInfo
+    );
     const targetSocket = Array.from(io.sockets.sockets.values()).find(
       (s) => s.handshake.auth.userId === to
     );
     if (targetSocket) {
-      targetSocket.emit("rtc:request", {
+      const requestData = {
         from: userId,
-        fileInfo,
+        fromNickname: userData.nickname,
+        fileInfo: {
+          ...fileInfo,
+          timestamp: new Date().toISOString(),
+          sender: userData.nickname,
+        },
+      };
+      console.log("发送文件请求:", requestData);
+      targetSocket.emit("rtc:request", requestData);
+    } else {
+      console.log(`目标用户 ${to} 不在线`);
+      socket.emit("rtc:error", {
+        error: "用户不在线",
+        to,
       });
     }
   });
 
   socket.on("rtc:accept", ({ to }) => {
+    console.log(`接受文件传输: 从 ${userId} 到 ${to}`);
     const targetSocket = Array.from(io.sockets.sockets.values()).find(
       (s) => s.handshake.auth.userId === to
     );
     if (targetSocket) {
-      targetSocket.emit("rtc:accept", { from: userId });
+      targetSocket.emit("rtc:accept", {
+        from: userId,
+        fromNickname: userData.nickname,
+      });
     }
   });
 
@@ -186,7 +209,11 @@ io.on("connection", (socket) => {
       (s) => s.handshake.auth.userId === to
     );
     if (targetSocket) {
-      targetSocket.emit("rtc:reject", { from: userId });
+      targetSocket.emit("rtc:reject", {
+        from: userId,
+        fromNickname: userData.nickname,
+        reason: "用户拒绝接收文件",
+      });
     }
   });
 
@@ -195,7 +222,10 @@ io.on("connection", (socket) => {
       (s) => s.handshake.auth.userId === to
     );
     if (targetSocket) {
-      targetSocket.emit("rtc:fallback", { from: userId });
+      targetSocket.emit("rtc:fallback", {
+        from: userId,
+        fromNickname: userData.nickname,
+      });
     }
   });
   userData.connections.add(socket.id);
@@ -239,8 +269,35 @@ io.on("connection", (socket) => {
     io.emit("message", message);
   });
 
-  // 处理断开连接
+  socket.on("join", (username) => {
+    socket.username = username;
+    onlineUsers.add(username);
+
+    // 广播更新后的在线用户数量
+    io.emit("userCount", onlineUsers.size);
+
+    // 广播用户加入消息
+    io.emit("message", {
+      type: "system",
+      content: `${username} 加入了聊天室`,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   socket.on("disconnect", () => {
+    if (socket.username) {
+      onlineUsers.delete(socket.username);
+
+      // 广播更新后的在线用户数量
+      io.emit("userCount", onlineUsers.size);
+
+      // 广播用户离开消息
+      io.emit("message", {
+        type: "system",
+        content: `${socket.username} 离开了聊天室`,
+        timestamp: new Date().toISOString(),
+      });
+    }
     if (userData) {
       userData.connections.delete(socket.id);
       // 只有当用户的所有连接都断开时才移除用户
@@ -254,6 +311,19 @@ io.on("connection", (socket) => {
         io.emit("user-list", usersList);
       }
     }
+  });
+
+  socket.on("message", (msg) => {
+    // 添加消息类型和时间戳
+    const messageData = {
+      type: "user",
+      username: socket.username,
+      content: msg,
+      timestamp: new Date().toISOString(),
+    };
+
+    // 使用 volatile 发送非关键消息，提高性能
+    io.volatile.emit("message", messageData);
   });
 });
 

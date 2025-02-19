@@ -105,11 +105,21 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
     setSearchTerm(term);
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const [isSending, setIsSending] = useState(false);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newMessage.trim()) {
-      socketService.sendMessage(newMessage.trim());
-      setNewMessage("");
+    if (newMessage.trim() && !isSending) {
+      setIsSending(true);
+      try {
+        await socketService.sendMessage(newMessage.trim());
+        setNewMessage("");
+      } finally {
+        // 添加300ms延迟，防止快速重复发送
+        setTimeout(() => {
+          setIsSending(false);
+        }, 300);
+      }
     }
   };
 
@@ -266,8 +276,19 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
           <Grid
             item
             xs={12}
+            sm={12}
             md={3}
-            sx={{ height: "100%", display: { xs: "none", md: "block" } }}
+            sx={{
+              height: { xs: "300px", md: "100%" },
+              order: { xs: 0, md: 1 },
+              position: { xs: "fixed", md: "relative" },
+              bottom: { xs: 0, md: "auto" },
+              left: { xs: 0, md: "auto" },
+              right: { xs: 0, md: "auto" },
+              zIndex: { xs: 1100, md: 1 },
+              bgcolor: "background.default",
+              px: { xs: 1, md: 0 },
+            }}
           >
             <Box
               sx={{
