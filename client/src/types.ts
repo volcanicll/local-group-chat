@@ -14,6 +14,7 @@ export interface FileMessage {
   size: number;
   sender: string;
   timestamp?: string;
+  type?: string; // Added for WebRTC file transfers
 }
 
 export interface FileDeleteResponse {

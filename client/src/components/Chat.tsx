@@ -9,8 +9,12 @@ import {
   Tooltip,
   Typography,
   IconButton,
+  Drawer,
+  Fab,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
-import { Send } from "@mui/icons-material";
+import { Send, Menu, Close } from "@mui/icons-material";
 import "../styles/highlight.css";
 import { socketService } from "../socket";
 import { ChatMessage } from "./ChatMessage";
@@ -18,6 +22,8 @@ import { UserList } from "./UserList";
 import { FileUpload } from "./FileUpload";
 import { ChatHeader } from "./ChatHeader";
 import { Message, UserInfo } from "../types";
+import { VideoCall } from "./VideoCall";
+import { webRTCManager } from "../lib/webrtc-manager";
 
 interface Props {
   onToggleTheme: () => void;
@@ -25,6 +31,9 @@ interface Props {
 }
 
 export const Chat = ({ onToggleTheme, darkMode }: Props) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [filteredMessages, setFilteredMessages] = useState<Message[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -32,9 +41,26 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
   const [newMessage, setNewMessage] = useState("");
   const [currentUser, setCurrentUser] = useState("");
   const [currentUserId, setCurrentUserId] = useState("");
+  const [videoCallUserId, setVideoCallUserId] = useState<string | null>(null);
+  const [isIncomingCall, setIsIncomingCall] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const handleVideoSignal = ({
+      from,
+      type,
+    }: {
+      from: string;
+      type: string;
+    }) => {
+      if (type === "video") {
+        setVideoCallUserId(from);
+        setIsIncomingCall(true);
+      }
+    };
+
+    socketService.onWebRTCSignal(handleVideoSignal);
+
     const connect = async () => {
       try {
         const userId = await socketService.connect();
@@ -57,20 +83,17 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
 
     const unsubscribeUsers = socketService.onUserListUpdate((userList) => {
       setUsers(userList);
-      // 更新当前用户的显示昵称
       const currentUserInfo = userList.find((u) => u.userId === currentUserId);
       if (currentUserInfo) {
         setCurrentUser(currentUserInfo.nickname);
       }
     });
 
-    // 从localStorage获取初始昵称
     const savedNickname = localStorage.getItem("nickname");
     if (savedNickname) {
       setCurrentUser(savedNickname);
     }
 
-    // 添加昵称更新事件监听
     const unsubscribeUserUpdate = socketService.onUserUpdate((data) => {
       if (data.userId === currentUserId) {
         setCurrentUser(data.nickname);
@@ -113,7 +136,42 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
     }
   };
 
+  const handleInitiateCall = (targetUserId: string) => {
+    setVideoCallUserId(targetUserId);
+    setIsIncomingCall(false);
+    if (isMobile) {
+      setDrawerOpen(false);
+    }
+  };
+
+  const handleEndCall = () => {
+    setVideoCallUserId(null);
+    setIsIncomingCall(false);
+  };
+
   const displayMessages = searchTerm ? filteredMessages : messages;
+
+  const sidebarContent = (
+    <Box
+      sx={{
+        height: isMobile ? "auto" : "100%",
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+      }}
+    >
+      <Box sx={{ flex: isMobile ? "none" : "0 0 40%" }}>
+        <UserList
+          users={users}
+          currentUser={currentUserId}
+          onInitiateCall={handleInitiateCall}
+        />
+      </Box>
+      <Box sx={{ flex: isMobile ? "none" : "0 0 60%" }}>
+        <FileUpload />
+      </Box>
+    </Box>
+  );
 
   return (
     <Box
@@ -121,13 +179,14 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
         height: "100vh",
         overflow: "hidden",
         width: "100%",
+        position: "relative",
       }}
     >
       <Container
         maxWidth={false}
         sx={{
           height: "100%",
-          p: { xs: 1, sm: 2 },
+          p: { xs: 0.5, sm: 2 },
           display: "flex",
         }}
       >
@@ -160,7 +219,7 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
                 display: "flex",
                 flexDirection: "column",
                 bgcolor: "background.default",
-                borderRadius: 2,
+                borderRadius: { xs: 0, sm: 2 },
                 width: "100%",
               }}
             >
@@ -175,7 +234,7 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
                 sx={{
                   display: "flex",
                   flexDirection: "column",
-                  p: 2,
+                  p: { xs: 1, sm: 2 },
                   flex: 1,
                   overflowY: "auto",
                   overflowX: "hidden",
@@ -196,17 +255,17 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
               component="form"
               onSubmit={handleSendMessage}
               sx={{
-                p: 2,
+                p: { xs: 1, sm: 2 },
                 display: "flex",
                 flexDirection: "column",
-                borderRadius: 2,
+                borderRadius: { xs: 0, sm: 2 },
                 overflow: "hidden",
                 width: "100%",
               }}
             >
               <Box
                 sx={{
-                  display: "flex",
+                  display: { xs: "none", sm: "flex" },
                   alignItems: "center",
                   gap: 1,
                   px: 1,
@@ -230,7 +289,7 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   multiline
-                  minRows={2}
+                  minRows={isMobile ? 1 : 2}
                   maxRows={8}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -265,28 +324,60 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
           </Grid>
           <Grid
             item
-            xs={12}
             md={3}
             sx={{ height: "100%", display: { xs: "none", md: "block" } }}
           >
-            <Box
-              sx={{
-                height: "100%",
-                display: "flex",
-                flexDirection: "column",
-                gap: 2,
-              }}
-            >
-              <Box sx={{ flex: "0 0 40%" }}>
-                <UserList users={users} currentUser={currentUserId} />
-              </Box>
-              <Box sx={{ flex: "0 0 60%" }}>
-                <FileUpload />
-              </Box>
-            </Box>
+            {sidebarContent}
           </Grid>
         </Grid>
       </Container>
+
+      {/* Mobile Drawer */}
+      <Drawer
+        anchor="right"
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        sx={{
+          display: { xs: "block", md: "none" },
+          "& .MuiDrawer-paper": {
+            width: "85%",
+            maxWidth: 360,
+            bgcolor: "background.default",
+          },
+        }}
+      >
+        <Box sx={{ p: 2 }}>
+          <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
+            <IconButton onClick={() => setDrawerOpen(false)}>
+              <Close />
+            </IconButton>
+          </Box>
+          {sidebarContent}
+        </Box>
+      </Drawer>
+
+      {/* Mobile drawer toggle button */}
+      <Fab
+        color="primary"
+        onClick={() => setDrawerOpen(true)}
+        sx={{
+          position: "fixed",
+          bottom: 16,
+          right: 16,
+          display: { xs: "flex", md: "none" },
+          boxShadow: 3,
+        }}
+      >
+        <Menu />
+      </Fab>
+
+      {videoCallUserId && (
+        <VideoCall
+          targetUserId={videoCallUserId}
+          onEndCall={handleEndCall}
+          isIncoming={isIncomingCall}
+        />
+      )}
     </Box>
   );
 };
