@@ -23,7 +23,8 @@ import {
   Delete,
   InsertDriveFile,
 } from "@mui/icons-material";
-import { FileMessage } from "../types";
+import { FileMessage, TransferStats } from "../types";
+import { TransferMonitor } from "./TransferMonitor";
 import { socketService } from "../socket";
 import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
@@ -34,12 +35,16 @@ interface Props {
   onFileUploaded?: () => void;
 }
 
-interface UploadProgress {
-  [key: string]: number;
+interface TransferState {
+  [key: string]: {
+    progress: number;
+    stats: TransferStats;
+    isPaused: boolean;
+  };
 }
 
 export const FileUpload = ({ onFileUploaded }: Props) => {
-  const [uploadProgress, setUploadProgress] = useState<UploadProgress>({});
+  const [transferState, setTransferState] = useState<TransferState>({});
   const [sharedFiles, setSharedFiles] = useState<FileMessage[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
   const theme = useTheme();
@@ -76,9 +81,23 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
       setSelectedFile(file);
       setUserSelectOpen(true);
 
-      setUploadProgress((prev: UploadProgress) => ({
+      setTransferState((prev) => ({
         ...prev,
-        [file.name]: 0,
+        [file.name]: {
+          progress: 0,
+          stats: {
+            speed: 0,
+            progress: 0,
+            status: "transferring",
+            totalSize: file.size,
+            transferredSize: 0,
+            startTime: new Date(),
+            averageSpeed: 0,
+            peakSpeed: 0,
+            remainingTime: 0,
+          },
+          isPaused: false,
+        },
       }));
 
       // 重置input，允许选择相同文件
@@ -196,29 +215,55 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
         onSelect={async (targetUserId) => {
           if (!selectedFile) return;
 
-          setUploadProgress((prev) => ({
-            ...prev,
-            [selectedFile.name]: 0,
-          }));
-
           try {
-            await socketService.sendFileViaWebRTC(targetUserId, selectedFile);
-            if (onFileUploaded) {
-              onFileUploaded();
-            }
-            setSnackbarMessage("文件发送成功!");
-            setSnackbarOpen(true);
-          } catch (error: any) {
-            console.error("WebRTC文件发送失败:", error);
-            setSnackbarMessage(`文件发送失败: ${error.message}`);
-            setSnackbarOpen(true);
-          } finally {
-            setUploadProgress((prev) => {
-              const newProgress = { ...prev };
-              delete newProgress[selectedFile.name];
-              return newProgress;
+            await socketService.sendFileViaWebRTC(targetUserId, selectedFile, {
+              onProgress: (progress) => {
+                setTransferState((prev) => ({
+                  ...prev,
+                  [selectedFile.name]: {
+                    ...prev[selectedFile.name],
+                    progress,
+                  },
+                }));
+              },
+              onComplete: () => {
+                if (onFileUploaded) {
+                  onFileUploaded();
+                }
+                setSnackbarMessage("文件发送成功!");
+                setSnackbarOpen(true);
+
+                // 清理传输状态
+                setTransferState((prev) => {
+                  const newState = { ...prev };
+                  delete newState[selectedFile.name];
+                  return newState;
+                });
+              },
+              onError: (error: Error) => {
+                console.error("WebRTC文件发送失败:", error);
+                setSnackbarMessage(`文件发送失败: ${error.message}`);
+                setSnackbarOpen(true);
+              },
+              onStats: (stats: TransferStats) => {
+                setTransferState((prev) => ({
+                  ...prev,
+                  [selectedFile.name]: {
+                    ...prev[selectedFile.name],
+                    stats,
+                  },
+                }));
+              },
             });
             setSelectedFile(null);
+          } catch (error) {
+            console.error("Transfer failed:", error);
+            setSnackbarMessage(
+              `传输失败: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+            setSnackbarOpen(true);
           }
         }}
         users={users}
@@ -282,17 +327,60 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
                 </Box>
               }
             />
-            {uploadProgress[file.name] !== undefined && (
-              <Box sx={{ display: "flex", alignItems: "center", mr: 2 }}>
-                <CircularProgress
-                  variant="determinate"
-                  value={uploadProgress[file.name]}
-                  size={24}
-                />
-                <Typography variant="body2" sx={{ ml: 1 }}>
-                  {uploadProgress[file.name]}%
-                </Typography>
-              </Box>
+            {transferState[file.name] && (
+              <TransferMonitor
+                fileName={file.name}
+                stats={transferState[file.name].stats}
+                onPauseResume={() => {
+                  const currentState = transferState[file.name];
+                  if (currentState && currentState.stats) {
+                    const newIsPaused = !currentState.isPaused;
+                    try {
+                      if (newIsPaused) {
+                        socketService.pauseTransfer(file.id);
+                      } else {
+                        socketService.resumeTransfer(file.id);
+                      }
+                      setTransferState((prev) => ({
+                        ...prev,
+                        [file.name]: {
+                          ...prev[file.name],
+                          isPaused: newIsPaused,
+                          stats: {
+                            ...prev[file.name].stats,
+                            status: newIsPaused ? "paused" : "transferring",
+                          },
+                        },
+                      }));
+                    } catch (error) {
+                      console.error("Failed to pause/resume transfer:", error);
+                      setSnackbarMessage(
+                        `传输控制失败: ${
+                          error instanceof Error ? error.message : String(error)
+                        }`
+                      );
+                      setSnackbarOpen(true);
+                    }
+                  }
+                }}
+                onSpeedLimit={(limit) => {
+                  try {
+                    socketService.setTransferSpeedLimit(file.id, limit);
+                    setSnackbarMessage(
+                      `已设置速度限制: ${formatFileSize(limit)}/s`
+                    );
+                    setSnackbarOpen(true);
+                  } catch (error) {
+                    console.error("Failed to set speed limit:", error);
+                    setSnackbarMessage(
+                      `设置速度限制失败: ${
+                        error instanceof Error ? error.message : String(error)
+                      }`
+                    );
+                    setSnackbarOpen(true);
+                  }
+                }}
+              />
             )}
             <ListItemSecondaryAction>
               <IconButton

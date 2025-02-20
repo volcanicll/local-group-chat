@@ -26,6 +26,18 @@ export interface UserInfo {
   nickname: string;
 }
 
+export interface TransferStats {
+  speed: number;
+  progress: number;
+  status: "transferring" | "paused" | "completed" | "error";
+  totalSize: number;
+  transferredSize: number;
+  startTime: Date;
+  averageSpeed: number;
+  peakSpeed: number;
+  remainingTime: number;
+}
+
 export interface WelcomeResponse {
   userId: string;
   nickname: string;

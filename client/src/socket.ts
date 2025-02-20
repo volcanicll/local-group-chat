@@ -1,5 +1,11 @@
 import { io, Socket } from "socket.io-client";
-import { FileMessage, Message, WelcomeResponse, UserInfo } from "./types";
+import {
+  FileMessage,
+  Message,
+  WelcomeResponse,
+  UserInfo,
+  TransferStats,
+} from "./types";
 import { WebRTCManager } from "./lib/webrtc-manager";
 
 class SocketService {
@@ -117,21 +123,50 @@ class SocketService {
     });
   }
 
-  async sendFileViaWebRTC(targetUserId: string, file: File): Promise<void> {
+  pauseTransfer(fileId: string): void {
+    if (!this.rtcManager) {
+      throw new Error("WebRTC manager not initialized");
+    }
+    this.rtcManager.pauseTransfer(fileId);
+  }
+
+  resumeTransfer(fileId: string): void {
+    if (!this.rtcManager) {
+      throw new Error("WebRTC manager not initialized");
+    }
+    this.rtcManager.resumeTransfer(fileId);
+  }
+
+  setTransferSpeedLimit(fileId: string, bytesPerSecond: number): void {
+    if (!this.rtcManager) {
+      throw new Error("WebRTC manager not initialized");
+    }
+    this.rtcManager.setSpeedLimit(fileId, bytesPerSecond);
+  }
+
+  async sendFileViaWebRTC(
+    targetUserId: string,
+    file: File,
+    callbacks: {
+      onProgress: (progress: number) => void;
+      onComplete: () => void;
+      onError: (error: Error) => void;
+      onStats?: (stats: TransferStats) => void;
+    }
+  ): Promise<void> {
     if (!this.rtcManager) {
       throw new Error("WebRTC manager not initialized");
     }
 
     return new Promise((resolve, reject) => {
       this.rtcManager!.initiateFileTransfer(targetUserId, file, {
-        onProgress: (progress) => {
-          // Progress handler can be used by the UI
-          console.log(`Transfer progress: ${progress}%`);
-        },
+        ...callbacks,
         onComplete: () => {
+          callbacks.onComplete();
           resolve();
         },
         onError: (error) => {
+          callbacks.onError(error);
           reject(error);
         },
       });
