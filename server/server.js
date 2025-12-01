@@ -3,7 +3,6 @@ const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const multer = require("multer");
-const { v4: uuidv4 } = require("uuid");
 const path = require("path");
 
 const app = express();
@@ -85,7 +84,7 @@ app.post("/api/upload", upload.single("file"), (req, res) => {
     return res.status(400).json({ error: "No file uploaded" });
   }
 
-  const fileId = uuidv4();
+  const fileId = crypto.randomUUID();
   files.set(fileId, {
     name: req.file.originalname,
     data: req.file.buffer,
@@ -174,7 +173,7 @@ io.on("connection", (socket) => {
     const match = msg.match(codeBlockRegex);
 
     const message = {
-      id: uuidv4(),
+      id: crypto.randomUUID(),
       user: userData.nickname,
       userId: userId,
       text: match ? match[2].trim() : msg,

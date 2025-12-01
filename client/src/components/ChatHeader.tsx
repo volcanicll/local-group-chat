@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   Box,
   IconButton,
@@ -11,7 +11,6 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  useTheme,
 } from "@mui/material";
 import {
   Brightness4,
@@ -21,7 +20,6 @@ import {
   Edit,
 } from "@mui/icons-material";
 import { socketService } from "../socket";
-import axios from "axios";
 
 interface Props {
   onToggleTheme: () => void;
@@ -42,7 +40,7 @@ export const ChatHeader = ({
   const [showNickname, setShowNickname] = useState(false);
   const [nickname, setNickname] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const theme = useTheme();
+
 
   const handleSearch = (value: string) => {
     setSearchTerm(value);

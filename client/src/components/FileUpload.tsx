@@ -48,7 +48,7 @@ export const FileUpload = ({ onFileUploaded }: Props) => {
       formData.append("sender", socketService.getUserId() || "未知用户");
 
       try {
-        const response = await axios.post("/api/upload", formData, {
+        await axios.post("/api/upload", formData, {
           onUploadProgress: (progressEvent) => {
             if (progressEvent.total) {
               const progress = Math.round(

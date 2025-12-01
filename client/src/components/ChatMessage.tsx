@@ -1,11 +1,9 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   Box,
-  IconButton,
   Paper,
   Typography,
   useTheme,
-  Fade,
 } from "@mui/material";
 import { Message } from "../types";
 import { format } from "date-fns";

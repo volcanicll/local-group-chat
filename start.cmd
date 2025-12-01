@@ -1,11 +1,13 @@
 @echo off
-echo Installing dependencies...
-cd client && npm install && cd ..
-cd server && npm install && cd ..
+echo Starting backend...
+cd server
+call bun install
+start "Server" bun start
 
-echo Starting services...
-start "Server" cmd /c "cd server && node server.js"
-start "Client" cmd /c "cd client && npm run dev"
+echo Starting frontend...
+cd ../client
+call bun install
+start "Client" bun run dev
 
 echo Application is running!
 echo Client: http://localhost:3000

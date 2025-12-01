@@ -236,7 +236,7 @@ export const Chat = ({ onToggleTheme, darkMode }: Props) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       if (newMessage.trim()) {
-                        handleSendMessage(e as any);
+                        handleSendMessage(e as unknown as React.FormEvent);
                       }
                     }
                   }}
